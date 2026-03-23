@@ -4,108 +4,296 @@
   <meta charset="UTF-8">
   <title>Snake</title>
   <style>
+    * { box-sizing: border-box; }
     body {
-      background: #1a1a1a;
+      background: #3e2010;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
       height: 100vh;
       margin: 0;
-      font-family: monospace;
+      font-family: 'Segoe UI', monospace;
       color: #fff;
     }
-    canvas {
-      border: 2px solid #444;
-    }
     #score {
-      font-size: 20px;
-      margin-bottom: 10px;
+      font-size: 22px;
+      padding: 8px 0;
+      letter-spacing: 2px;
+      text-shadow: 0 0 10px #9c27b0;
+      text-align: center;
     }
-    #info {
-      margin-top: 10px;
-      color: #888;
-      font-size: 14px;
+    canvas {
+      border-radius: 4px;
+      box-shadow: 0 0 40px rgba(0,0,0,0.6);
+      display: block;
     }
     #overlay {
       position: absolute;
+      inset: 0;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      color: #fff;
-      font-size: 24px;
-      text-align: center;
+      background: rgba(0,0,0,0.62);
+      border-radius: 4px;
+      gap: 12px;
     }
-    #overlay button {
-      margin-top: 16px;
-      padding: 10px 24px;
-      font-size: 16px;
-      background: #4caf50;
-      color: #fff;
-      border: none;
+    #overlay h2 { margin: 0; font-size: 28px; }
+    .diff-row {
+      display: flex;
+      gap: 8px;
+    }
+    .diff-btn {
+      padding: 7px 18px;
+      font-size: 14px;
+      border: 2px solid #555;
+      background: transparent;
+      color: #ccc;
       border-radius: 6px;
       cursor: pointer;
+      transition: all 0.15s;
     }
-    #overlay button:hover { background: #388e3c; }
+    .diff-btn.active { border-color: #9c27b0; background: #4a148c; color: #fff; }
+    .diff-btn:hover:not(.active) { border-color: #9c27b0; color: #fff; }
+    #startBtn {
+      padding: 10px 32px;
+      font-size: 16px;
+      background: #7b1fa2;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      letter-spacing: 1px;
+      box-shadow: 0 4px 15px rgba(156,39,176,0.5);
+      transition: background 0.2s;
+    }
+    #startBtn:hover { background: #4a148c; }
+    #countdown {
+      position: absolute;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      font-size: 100px;
+      font-weight: bold;
+      color: #fff;
+      text-shadow: 0 0 30px #ce93d8, 0 0 60px #9c27b0;
+      background: rgba(0,0,0,0.4);
+      border-radius: 4px;
+    }
   </style>
 </head>
 <body>
-  <div id="score">Score: 0</div>
-  <div style="position:relative;">
-    <canvas id="canvas" width="400" height="400"></canvas>
+  <div style="position:relative; display:flex; flex-direction:column; align-items:center;">
+    <div id="score">Score: 0</div>
+    <canvas id="canvas" width="440" height="440"></canvas>
     <div id="overlay">
-      <div id="msg">Snake</div>
-      <button onclick="startGame()">Starten</button>
+      <h2 id="msg">🐍 Snake</h2>
+      <div class="diff-row">
+        <button class="diff-btn" data-speed="200" onclick="setDiff(this)">Einfach</button>
+        <button class="diff-btn active" data-speed="130" onclick="setDiff(this)">Normal</button>
+        <button class="diff-btn" data-speed="80"  onclick="setDiff(this)">Schwer</button>
+      </div>
+      <button id="startBtn" onclick="beginCountdown()">Starten</button>
     </div>
+    <div id="countdown"></div>
   </div>
 
-
   <script>
-    const canvas = document.getElementById('canvas');
-    const ctx = canvas.getContext('2d');
+    const canvas  = document.getElementById('canvas');
+    const ctx     = canvas.getContext('2d');
     const overlay = document.getElementById('overlay');
     const scoreEl = document.getElementById('score');
-    const msgEl = document.getElementById('msg');
+    const msgEl   = document.getElementById('msg');
+    const cdEl    = document.getElementById('countdown');
 
-    const SIZE = 20;
-    const COLS = canvas.width / SIZE;
-    const ROWS = canvas.height / SIZE;
+    const BORDER = 20;
+    const SIZE   = 20;
+    const COLS   = 20;
+    const ROWS   = 20;
+    const FW     = COLS * SIZE;
+    const FH     = ROWS * SIZE;
 
-    let snake, dir, nextDir, food, score, loop;
+    let SPEED = 130; // ms per step (changed by difficulty)
 
-    function startGame() {
-      snake = [{ x: 10, y: 10 }];
-      dir = { x: 1, y: 0 };
-      nextDir = { x: 1, y: 0 };
-      score = 0;
-      scoreEl.textContent = 'Score: 0';
-      overlay.style.display = 'none';
-      placeFood();
-      clearInterval(loop);
-      loop = setInterval(tick, 120);
+    let snake, prevSnake, dir, nextDir, food, score;
+    let running  = false;
+    let lastTick = 0;
+    let rafId;
+
+    function setDiff(btn) {
+      document.querySelectorAll('.diff-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      SPEED = +btn.dataset.speed;
     }
 
-    function placeFood() {
-      let pos;
-      do {
-        pos = { x: Math.floor(Math.random() * COLS), y: Math.floor(Math.random() * ROWS) };
-      } while (snake.some(s => s.x === pos.x && s.y === pos.y));
-      food = pos;
+    // ── Deterministischer RNG ─────────────────────────────────────────
+    function mulberry32(seed) {
+      return () => {
+        seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+        let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+        t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+        return ((t ^ t >>> 14) >>> 0) / 4294967296;
+      };
     }
 
+    // ── Offscreen: Erde (einmalig) ────────────────────────────────────
+    const earthOC = document.createElement('canvas');
+    earthOC.width = canvas.width; earthOC.height = canvas.height;
+    (function () {
+      const c = earthOC.getContext('2d');
+      c.fillStyle = '#5d3a1a';
+      c.fillRect(0, 0, earthOC.width, earthOC.height);
+      const r = mulberry32(42);
+      for (let i = 0; i < 700; i++) {
+        const x = r() * earthOC.width, y = r() * earthOC.height;
+        if (x >= BORDER && x <= BORDER+FW && y >= BORDER && y <= BORDER+FH) continue;
+        const s = 0.5 + r() * 0.7;
+        c.fillStyle = `rgba(${Math.floor(90*s)},${Math.floor(45*s)},${Math.floor(12*s)},0.75)`;
+        c.beginPath(); c.arc(x, y, 0.8 + r()*2.2, 0, Math.PI*2); c.fill();
+      }
+      const r2 = mulberry32(77);
+      for (let i = 0; i < 22; i++) {
+        let x, y;
+        do { x = r2()*earthOC.width; y = r2()*earthOC.height; }
+        while (x >= BORDER-6 && x <= BORDER+FW+6 && y >= BORDER-6 && y <= BORDER+FH+6);
+        c.fillStyle = 'rgba(110,80,50,0.55)';
+        c.beginPath(); c.ellipse(x, y, 3+r2()*5, 2+r2()*3, r2()*Math.PI, 0, Math.PI*2); c.fill();
+      }
+    })();
+
+    // ── Offscreen: Rasen (einmalig) ───────────────────────────────────
+    const grassOC = document.createElement('canvas');
+    grassOC.width = FW; grassOC.height = FH;
+    (function () {
+      const c = grassOC.getContext('2d');
+      for (let x = 0; x < COLS; x++) {
+        for (let y = 0; y < ROWS; y++) {
+          const dark = (x + y) % 2 === 0;
+          c.fillStyle = dark ? '#3a7d1e' : '#4a8f26';
+          c.fillRect(x*SIZE, y*SIZE, SIZE, SIZE);
+          c.strokeStyle = dark ? 'rgba(0,0,0,0.09)' : 'rgba(255,255,255,0.045)';
+          c.lineWidth = 0.5;
+          for (let g = 3; g < SIZE; g += 5) {
+            c.beginPath();
+            c.moveTo(x*SIZE+g, y*SIZE+SIZE);
+            c.lineTo(x*SIZE+g-1, y*SIZE+SIZE-4);
+            c.stroke();
+          }
+        }
+      }
+      c.strokeStyle = '#2d6015'; c.lineWidth = 2;
+      c.strokeRect(0, 0, FW, FH);
+    })();
+
+    // ── Apfel ─────────────────────────────────────────────────────────
+    function drawApple() {
+      const cx = BORDER + food.x*SIZE + SIZE/2;
+      const cy = BORDER + food.y*SIZE + SIZE/2;
+      const r  = SIZE/2 - 2;
+      const g  = ctx.createRadialGradient(cx-2, cy-2, 1, cx, cy, r);
+      g.addColorStop(0, '#ff6b6b'); g.addColorStop(0.5, '#e53935'); g.addColorStop(1, '#8b0000');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.45)';
+      ctx.beginPath(); ctx.ellipse(cx-3, cy-3, 3, 2, -0.5, 0, Math.PI*2); ctx.fill();
+      ctx.strokeStyle = '#4e342e'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(cx+1, cy-r);
+      ctx.quadraticCurveTo(cx+6, cy-r-6, cx+3, cy-r-4); ctx.stroke();
+      ctx.fillStyle = '#66bb6a';
+      ctx.beginPath(); ctx.ellipse(cx+4, cy-r-2, 4, 2, 0.6, 0, Math.PI*2); ctx.fill();
+    }
+
+    // ── Schlange ──────────────────────────────────────────────────────
+    // Easing: leicht ausgebremst am Ende → weicher
+    function ease(t) { return t < 0.5 ? 2*t*t : -1+(4-2*t)*t; }
+
+    function drawSnake(t) {
+      const et = ease(t);
+      for (let i = snake.length - 1; i >= 0; i--) {
+        const cur  = snake[i];
+        const prev = prevSnake[i];   // immer gesetzt (siehe tick)
+        const ix   = BORDER + (prev.x + (cur.x - prev.x) * et) * SIZE;
+        const iy   = BORDER + (prev.y + (cur.y - prev.y) * et) * SIZE;
+        const pad  = 1;
+
+        if (i === 0) {
+          const g = ctx.createRadialGradient(ix+SIZE/2, iy+SIZE/2, 2, ix+SIZE/2, iy+SIZE/2, SIZE/2);
+          g.addColorStop(0, '#e1bee7'); g.addColorStop(1, '#7b1fa2');
+          ctx.fillStyle = g;
+          ctx.beginPath(); ctx.roundRect(ix+pad, iy+pad, SIZE-pad*2, SIZE-pad*2, 5); ctx.fill();
+          drawEyes(ix, iy);
+        } else {
+          const even = i % 2 === 0;
+          const g = ctx.createLinearGradient(ix, iy, ix+SIZE, iy+SIZE);
+          g.addColorStop(0, even ? '#8e24aa' : '#7b1fa2');
+          g.addColorStop(1, even ? '#6a1b9a' : '#4a148c');
+          ctx.fillStyle = g;
+          ctx.beginPath(); ctx.roundRect(ix+pad, iy+pad, SIZE-pad*2, SIZE-pad*2, 3); ctx.fill();
+          ctx.strokeStyle = 'rgba(0,0,0,0.18)'; ctx.lineWidth = 0.8;
+          ctx.beginPath();
+          ctx.moveTo(ix+pad+3, iy+SIZE/2); ctx.lineTo(ix+SIZE-pad-3, iy+SIZE/2);
+          ctx.stroke();
+        }
+      }
+    }
+
+    function drawEyes(ix, iy) {
+      let e1, e2;
+      if      (dir.x ===  1) { e1=[ix+14,iy+5];  e2=[ix+14,iy+13]; }
+      else if (dir.x === -1) { e1=[ix+5, iy+5];  e2=[ix+5, iy+13]; }
+      else if (dir.y === -1) { e1=[ix+5, iy+5];  e2=[ix+13,iy+5];  }
+      else                   { e1=[ix+5, iy+14]; e2=[ix+13,iy+14]; }
+      [e1, e2].forEach(([ex, ey]) => {
+        ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(ex, ey, 2.8, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = '#111'; ctx.beginPath(); ctx.arc(ex+0.5, ey+0.5, 1.3, 0, Math.PI*2); ctx.fill();
+      });
+    }
+
+    // ── Game Loop ─────────────────────────────────────────────────────
+    function gameLoop(ts) {
+      if (!running) return;
+
+      const elapsed = ts - lastTick;
+      const t = Math.min(elapsed / SPEED, 1);
+
+      // 1. Zeichnen mit interpoliertem t
+      ctx.drawImage(earthOC, 0, 0);
+      ctx.drawImage(grassOC, BORDER, BORDER);
+      drawApple();
+      drawSnake(t);
+
+      // 2. Schritt machen wenn Interpolation fertig
+      if (t >= 1) {
+        if (!tick()) return;
+        lastTick = ts;
+      }
+
+      rafId = requestAnimationFrame(gameLoop);
+    }
+
+    // gibt false zurück bei Game Over
     function tick() {
       dir = nextDir;
       const head = { x: snake[0].x + dir.x, y: snake[0].y + dir.y };
+      if (head.x < 0 || head.x >= COLS || head.y < 0 || head.y >= ROWS) { gameOver(); return false; }
+      if (snake.some(s => s.x === head.x && s.y === head.y))             { gameOver(); return false; }
 
-      // Wand-Kollision
-      if (head.x < 0 || head.x >= COLS || head.y < 0 || head.y >= ROWS) return gameOver();
-      // Selbst-Kollision
-      if (snake.some(s => s.x === head.x && s.y === head.y)) return gameOver();
+      const ate = head.x === food.x && head.y === food.y;
+
+      // prevSnake[i] = wo snake[i] VORHER war (vor dem Schritt)
+      // snake[0]   = newHead  → prevSnake[0] = oldHead  = snake[0] vor unshift
+      // snake[i]   = oldSnake[i-1] → prevSnake[i] = oldSnake[i]
+      // Daher: prevSnake = alte snake-Positionen (vor dem Schritt)
+      prevSnake = snake.map(s => ({ ...s }));
 
       snake.unshift(head);
 
-      if (head.x === food.x && head.y === food.y) {
+      if (ate) {
+        // Wachsen: kein pop, Schwanz bleibt → prevSnake bekommt extra Eintrag
+        // (neues letztes Segment war vorher das vorletzte → gleiche Position)
+        prevSnake.push({ ...prevSnake[prevSnake.length - 1] });
         score++;
         scoreEl.textContent = 'Score: ' + score;
         placeFood();
@@ -113,54 +301,80 @@
         snake.pop();
       }
 
-      draw();
+      return true;
     }
 
-    function draw() {
-      ctx.fillStyle = '#1a1a1a';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-      // Grid (optional, subtil)
-      ctx.strokeStyle = '#222';
-      for (let x = 0; x < COLS; x++) {
-        for (let y = 0; y < ROWS; y++) {
-          ctx.strokeRect(x * SIZE, y * SIZE, SIZE, SIZE);
-        }
-      }
-
-      // Futter
-      ctx.fillStyle = '#e74c3c';
-      ctx.beginPath();
-      ctx.arc(food.x * SIZE + SIZE / 2, food.y * SIZE + SIZE / 2, SIZE / 2 - 2, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Schlange
-      snake.forEach((seg, i) => {
-        ctx.fillStyle = i === 0 ? '#2ecc71' : '#27ae60';
-        ctx.fillRect(seg.x * SIZE + 1, seg.y * SIZE + 1, SIZE - 2, SIZE - 2);
-      });
+    function placeFood() {
+      let pos;
+      do { pos = { x: Math.floor(Math.random()*COLS), y: Math.floor(Math.random()*ROWS) }; }
+      while (snake.some(s => s.x === pos.x && s.y === pos.y));
+      food = pos;
     }
 
     function gameOver() {
-      clearInterval(loop);
-      msgEl.textContent = 'Game Over! Score: ' + score;
-      overlay.querySelector('button').textContent = 'Nochmal';
+      running = false;
+      cancelAnimationFrame(rafId);
+      msgEl.innerHTML = '💀 Game Over!<br><span style="font-size:18px">Score: ' + score + '</span>';
+      document.getElementById('startBtn').textContent = 'Nochmal';
+      scoreEl.style.display = 'none';
       overlay.style.display = 'flex';
     }
 
+    // ── Countdown ─────────────────────────────────────────────────────
+    function beginCountdown() {
+      overlay.style.display = 'none';
+      cdEl.style.display = 'flex';
+
+      const startX = 10;
+      snake     = [{ x: startX, y: 10 }];
+      // prevSnake einen Schritt hinter der Startposition → sofort flüssige Bewegung
+      prevSnake = [{ x: startX - 1, y: 10 }];
+      dir       = { x: 1, y: 0 };
+      nextDir   = { x: 1, y: 0 };
+      score     = 0;
+      scoreEl.textContent = 'Score: 0';
+      scoreEl.style.display = 'block';
+      placeFood();
+
+      ctx.drawImage(earthOC, 0, 0);
+      ctx.drawImage(grassOC, BORDER, BORDER);
+      drawApple();
+      drawSnake(1);
+
+      let count = 3;
+      cdEl.textContent = count;
+      const iv = setInterval(() => {
+        count--;
+        if (count > 0) {
+          cdEl.textContent = count;
+        } else {
+          clearInterval(iv);
+          cdEl.style.display = 'none';
+          running  = true;
+          // lastTick so setzen dass der erste Tick sofort feuert
+          lastTick = performance.now() - SPEED;
+          rafId = requestAnimationFrame(gameLoop);
+        }
+      }, 800);
+    }
+
+    // ── Steuerung ──────────────────────────────────────────────────────
     document.addEventListener('keydown', e => {
-      const keys = {
-        ArrowUp:    { x: 0, y: -1 },
-        ArrowDown:  { x: 0, y:  1 },
-        ArrowLeft:  { x: -1, y: 0 },
-        ArrowRight: { x:  1, y: 0 },
+      const map = {
+        ArrowUp:    { x: 0, y:-1 },
+        ArrowDown:  { x: 0, y: 1 },
+        ArrowLeft:  { x:-1, y: 0 },
+        ArrowRight: { x: 1, y: 0 },
       };
-      const d = keys[e.key];
+      const d = map[e.key];
       if (!d) return;
-      // Kein 180° Umkehren
       if (d.x !== -dir.x || d.y !== -dir.y) nextDir = d;
       e.preventDefault();
     });
+
+    // Initiales Rendering
+    ctx.drawImage(earthOC, 0, 0);
+    ctx.drawImage(grassOC, BORDER, BORDER);
   </script>
 </body>
 </html>
