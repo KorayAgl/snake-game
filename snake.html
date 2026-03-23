@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <title>Snake</title>
+  <style>
+    body {
+      background: #1a1a1a;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+      font-family: monospace;
+      color: #fff;
+    }
+    canvas {
+      border: 2px solid #444;
+    }
+    #score {
+      font-size: 20px;
+      margin-bottom: 10px;
+    }
+    #info {
+      margin-top: 10px;
+      color: #888;
+      font-size: 14px;
+    }
+    #overlay {
+      position: absolute;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-size: 24px;
+      text-align: center;
+    }
+    #overlay button {
+      margin-top: 16px;
+      padding: 10px 24px;
+      font-size: 16px;
+      background: #4caf50;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    #overlay button:hover { background: #388e3c; }
+  </style>
+</head>
+<body>
+  <div id="score">Score: 0</div>
+  <div style="position:relative;">
+    <canvas id="canvas" width="400" height="400"></canvas>
+    <div id="overlay">
+      <div id="msg">Snake</div>
+      <button onclick="startGame()">Starten</button>
+    </div>
+  </div>
+
+
+  <script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const overlay = document.getElementById('overlay');
+    const scoreEl = document.getElementById('score');
+    const msgEl = document.getElementById('msg');
+
+    const SIZE = 20;
+    const COLS = canvas.width / SIZE;
+    const ROWS = canvas.height / SIZE;
+
+    let snake, dir, nextDir, food, score, loop;
+
+    function startGame() {
+      snake = [{ x: 10, y: 10 }];
+      dir = { x: 1, y: 0 };
+      nextDir = { x: 1, y: 0 };
+      score = 0;
+      scoreEl.textContent = 'Score: 0';
+      overlay.style.display = 'none';
+      placeFood();
+      clearInterval(loop);
+      loop = setInterval(tick, 120);
+    }
+
+    function placeFood() {
+      let pos;
+      do {
+        pos = { x: Math.floor(Math.random() * COLS), y: Math.floor(Math.random() * ROWS) };
+      } while (snake.some(s => s.x === pos.x && s.y === pos.y));
+      food = pos;
+    }
+
+    function tick() {
+      dir = nextDir;
+      const head = { x: snake[0].x + dir.x, y: snake[0].y + dir.y };
+
+      // Wand-Kollision
+      if (head.x < 0 || head.x >= COLS || head.y < 0 || head.y >= ROWS) return gameOver();
+      // Selbst-Kollision
+      if (snake.some(s => s.x === head.x && s.y === head.y)) return gameOver();
+
+      snake.unshift(head);
+
+      if (head.x === food.x && head.y === food.y) {
+        score++;
+        scoreEl.textContent = 'Score: ' + score;
+        placeFood();
+      } else {
+        snake.pop();
+      }
+
+      draw();
+    }
+
+    function draw() {
+      ctx.fillStyle = '#1a1a1a';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Grid (optional, subtil)
+      ctx.strokeStyle = '#222';
+      for (let x = 0; x < COLS; x++) {
+        for (let y = 0; y < ROWS; y++) {
+          ctx.strokeRect(x * SIZE, y * SIZE, SIZE, SIZE);
+        }
+      }
+
+      // Futter
+      ctx.fillStyle = '#e74c3c';
+      ctx.beginPath();
+      ctx.arc(food.x * SIZE + SIZE / 2, food.y * SIZE + SIZE / 2, SIZE / 2 - 2, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Schlange
+      snake.forEach((seg, i) => {
+        ctx.fillStyle = i === 0 ? '#2ecc71' : '#27ae60';
+        ctx.fillRect(seg.x * SIZE + 1, seg.y * SIZE + 1, SIZE - 2, SIZE - 2);
+      });
+    }
+
+    function gameOver() {
+      clearInterval(loop);
+      msgEl.textContent = 'Game Over! Score: ' + score;
+      overlay.querySelector('button').textContent = 'Nochmal';
+      overlay.style.display = 'flex';
+    }
+
+    document.addEventListener('keydown', e => {
+      const keys = {
+        ArrowUp:    { x: 0, y: -1 },
+        ArrowDown:  { x: 0, y:  1 },
+        ArrowLeft:  { x: -1, y: 0 },
+        ArrowRight: { x:  1, y: 0 },
+      };
+      const d = keys[e.key];
+      if (!d) return;
+      // Kein 180° Umkehren
+      if (d.x !== -dir.x || d.y !== -dir.y) nextDir = d;
+      e.preventDefault();
+    });
+  </script>
+</body>
+</html>
