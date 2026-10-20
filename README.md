@@ -5,6 +5,7 @@ Ein klassisches Snake-Spiel im Browser – gebaut mit HTML5 Canvas.
 ## [▶ Spiel starten](https://KorayAgl.github.io/snake-game)
 
 ## Steuerung
+<<<<<<< HEAD
 - **Pfeiltasten / WASD / Wischen** – Schlange lenken
 - **Enter / R** – Start / Neustart
 - **M** – Ton an/aus
@@ -30,3 +31,6 @@ Für eine gemeinsame Live-Bestenliste (kostenlos):
 6. Committen und pushen – fertig. Oben in der Bestenliste steht dann **● Live**.
 
 Hinweis: Der `apiKey` ist kein Geheimnis, er darf öffentlich im Code stehen. Geschützt wird die Datenbank durch die Regeln in `firestore.rules`.
+=======
+- **Pfeiltasten** – Schlange lenken
+>>>>>>> 36346ad068f8cadaf368a785150b5ec49d1647de
